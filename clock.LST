@@ -1,0 +1,12 @@
+C51 COMPILER V9.01   CLOCK                                                                 03/28/2019 08:13:21 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE CLOCK
+OBJECT MODULE PLACED IN clock.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE clock.c BROWSE INCDIR(.\SRC) DEBUG OBJECTEXTEND
+
+line level    source
+
+*** ERROR C318 OF clock.c: can't open file 'clock.c'
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  1 ERROR(S)

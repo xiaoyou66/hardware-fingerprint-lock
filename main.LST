@@ -1,0 +1,427 @@
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: D:\Keil\C51\BIN\C51.EXE main.c BROWSE INCDIR(.\SRC) DEBUG OBJECTEXTEND
+
+line level    source
+
+   1          #include "reg51.h"
+   2          #include "oled.h"
+   3          #include "intrins.h"
+   4          //引脚说明
+   5          //p1.0 SCL 显示屏
+   6          //p1.1 SDA 显示屏
+   7          //p1.2 继电器
+   8          //p1.3 蜂鸣器
+   9          //p2 点阵
+  10          
+  11          typedef unsigned int uint;        //对数据类型进行声明定义
+  12          typedef unsigned char uchar;
+  13          //定义矩阵键盘
+  14          #define KEY P2
+  15          sbit power=P1^2;
+  16          sbit beep=P1^3;
+  17          sbit btn=P1^4;
+  18          //全局定时函数
+  19          uint i0=0,flag=1;
+  20          uint time=0;
+  21          
+  22          //密码存储
+  23          uchar pwd[][6]={
+  24                  {0,0,0,0,0,0},
+  25                  {4,4,3,1,0,2}
+  26          };
+  27          //背景音乐
+  28          code uint bg[]={1046,1175,1318,1397,1568,1760,1976,1046};
+  29          
+  30          //指纹模块的一些指令
+  31          code unsigned char FPMXX_Pack_Head[6] = {0xEF,0x01,0xFF,0xFF,0xFF,0xFF};  //协议包头
+  32          code unsigned char FPMXX_Get_Img[6] = {0x01,0x00,0x03,0x01,0x0,0x05};    //获得指纹图像
+  33          code unsigned char FP_Search_0_9[11]={0x01,0x0,0x08,0x04,0x01,0x0,0x0,0x0,0x13,0x0,0x21}; //搜索0-9号指纹
+  34          code unsigned char FP_Img_To_Buffer1[7]={0x01,0x0,0x04,0x02,0x01,0x0,0x08}; //将图像放入到BUFFER1
+  35          unsigned char FPMXX_RECEICE_BUFFER[24];
+  36          
+  37          //****************** 指纹解锁模块
+  38           //初始化模块
+  39          void UART_init()
+  40          {
+  41   1            TMOD = 0x21;//确定T1工作方式 自动重载8位定时器，收TR1控制
+  42   1            TH1 = 0xfd;//装初值
+  43   1            TL1 = 0xfd;
+  44   1                TH0 = 0xff;//0.01毫秒中断一次
+  45   1                TL0 = 0x9c;
+  46   1                TR0 = 0;
+  47   1                ET0 = 1;//开中断
+  48   1            TR1 = 1;//开启定时器
+  49   1            REN = 1;//允许串行口接受
+  50   1            SM0 = 0;//方式2
+  51   1            SM1 = 1;
+  52   1            ES = 1;//串行口中断打开
+  53   1                EA=1;
+  54   1      }
+  55          //发送数据
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 2   
+
+  56          void UART_Send_Byte(unsigned char c)//UART Send a byte
+  57          {
+  58   1              SBUF = c;
+  59   1              while(!TI);
+  60   1              TI = 0;
+  61   1      }
+  62          //接受数据
+  63          unsigned char UART_Receive_Byte()//UART Receive a byteg
+  64          {       
+  65   1              unsigned char dat;
+  66   1              while(!RI);
+  67   1              dat = SBUF;
+  68   1              RI = 0; 
+  69   1              return (dat);
+  70   1      }
+  71          void FPMXX_Cmd_Send_Pack_Head(void) //发送包头
+  72          {
+  73   1                      int i;
+  74   1              
+  75   1                      for(i=0;i<6;i++) //包头
+  76   1          {
+  77   2            UART_Send_Byte(FPMXX_Pack_Head[i]);   
+  78   2          }
+  79   1      }
+  80          
+  81          //FINGERPRINT_获得指纹图像命令
+  82          void FPMXX_Cmd_Get_Img()
+  83          {
+  84   1          unsigned char i;
+  85   1      
+  86   1          FPMXX_Cmd_Send_Pack_Head(); //发送通信协议包头
+  87   1              
+  88   1          for(i=0;i<6;i++) //发送命令 0x1d
+  89   1             UART_Send_Byte(FPMXX_Get_Img[i]);
+  90   1      }
+  91          
+  92          //讲图像转换成特征码存放在Buffer1中
+  93          void FINGERPRINT_Cmd_Img_To_Buffer1(void)
+  94          {
+  95   1                  unsigned char i;
+  96   1          
+  97   1                     FPMXX_Cmd_Send_Pack_Head(); //发送通信协议包头
+  98   1                 
+  99   1                         for(i=0;i<7;i++)   //发送命令 将图像转换成 特征码 存放在 CHAR_buffer1
+ 100   1                   {
+ 101   2                         UART_Send_Byte(FP_Img_To_Buffer1[i]);
+ 102   2                           }
+ 103   1      }
+ 104          
+ 105          //搜索用户
+ 106          void FINGERPRINT_Cmd_Search_Finger_Admin(void)
+ 107          {
+ 108   1             unsigned char i;    
+ 109   1                               
+ 110   1                   FPMXX_Cmd_Send_Pack_Head(); //发送通信协议包头
+ 111   1      
+ 112   1             for(i=0;i<11;i++)
+ 113   1                 {
+ 114   2                    UART_Send_Byte(FP_Search_0_9[i]);   
+ 115   2                         }
+ 116   1      
+ 117   1      
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 3   
+
+ 118   1      }
+ 119          
+ 120          //接收反馈数据缓冲
+ 121          void FPMXX_Receive_Data(unsigned char ucLength)
+ 122          {
+ 123   1        unsigned char i;
+ 124   1        for (i=0;i<ucLength;i++)
+ 125   1          FPMXX_RECEICE_BUFFER[i] = UART_Receive_Byte();
+ 126   1      }
+ 127          
+ 128          
+ 129          //延时1s函数
+ 130          void delay1s(uchar i)   //误差 0us
+ 131          {
+ 132   1              while(i--){
+ 133   2                  unsigned char a,b,c;
+ 134   2                  for(c=167;c>0;c--)
+ 135   2                      for(b=171;b>0;b--)
+ 136   2                          for(a=16;a>0;a--);
+ 137   2                  _nop_();  //if Keil,require use intrins.h
+ 138   2              }
+ 139   1      }
+ 140          
+ 141          //延时函数
+ 142          void delay(uint i){
+ 143   1         while(i--);
+ 144   1      }
+ 145          //延时200ms
+ 146          //延时函数
+ 147          void delay200ms(uchar i)   //误差 0us
+ 148          {  
+ 149   1              while(i--){
+ 150   2          unsigned char a,b;
+ 151   2          for(b=173;b>0;b--)
+ 152   2              for(a=143;a>0;a--);
+ 153   2              }
+ 154   1      }
+ 155          //蜂鸣器发声程序
+ 156          void play(uint dat,uchar times){
+ 157   1              if(dat!=0){
+ 158   2                      int j=15000;
+ 159   2                      i0=0;
+ 160   2                      time=10000/dat+0.5;
+ 161   2                      TR0 = 1;//启动定时器    
+ 162   2                      delay200ms(times);
+ 163   2                      TR0 = 0;//关闭定时器
+ 164   2                      beep=1;
+ 165   2              }
+ 166   1      }
+ 167          //显示等待认证
+ 168          void  showwait(){
+ 169   1              OLED_ShowString(0,3,"                ",16);
+ 170   1              OLED_ShowCHinese(0,3,6);//等
+ 171   1              OLED_ShowCHinese(18,3,7);//待
+ 172   1              OLED_ShowCHinese(36,3,8);//认
+ 173   1              OLED_ShowCHinese(54,3,9);//证
+ 174   1              OLED_ShowString(72,3,"...",16);
+ 175   1      }
+ 176          //认证失败
+ 177          void showerror(){
+ 178   1              OLED_ShowString(0,3,"                ",16);
+ 179   1              OLED_ShowCHinese(0,3,8);//认
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 4   
+
+ 180   1              OLED_ShowCHinese(18,3,9);//     证
+ 181   1              OLED_ShowCHinese(36,3,24);//失
+ 182   1              OLED_ShowCHinese(54,3,25);//败
+ 183   1              OLED_ShowString(72,3,"!",16);
+ 184   1              play(bg[7],5);
+ 185   1      
+ 186   1      }
+ 187          //显示认证成功
+ 188          void  showok(uchar name){
+ 189   1              OLED_ShowString(0,3,"                ",16);
+ 190   1              OLED_ShowCHinese(0,3,10);//成
+ 191   1              OLED_ShowCHinese(18,3,11);//功
+ 192   1              OLED_ShowString(36,3,"!  ",16);
+ 193   1              switch(name){
+ 194   2                      case 1:
+ 195   2                              OLED_ShowCHinese(62,3,1);//游
+ 196   2                              OLED_ShowCHinese(80,3,12);//磊
+ 197   2                              break;
+ 198   2                      case 2:
+ 199   2                              OLED_ShowCHinese(62,3,13);//阳
+ 200   2                              OLED_ShowCHinese(80,3,14);//泽
+ 201   2                              OLED_ShowCHinese(98,3,15);//亮
+ 202   2                              break;
+ 203   2                      case 3:
+ 204   2                              OLED_ShowCHinese(62,3,16);//叶
+ 205   2                              OLED_ShowCHinese(80,3,17);//志
+ 206   2                              OLED_ShowCHinese(98,3,18);//鸿
+ 207   2                              break;
+ 208   2                      case 4:
+ 209   2                              OLED_ShowCHinese(62,3,19);//乐
+ 210   2                              OLED_ShowCHinese(80,3,20);//永
+ 211   2                              break;
+ 212   2                      default:
+ 213   2                              break;
+ 214   2              }
+ 215   1              play(bg[5],5);//播放提示音
+ 216   1              power=1; //打开继电器
+ 217   1              delay1s(3);
+ 218   1              power=0;
+ 219   1      
+ 220   1      }
+ 221          //按键处理函数
+ 222          uchar keyprocess(){
+ 223   1              uchar keyvalue=0;
+ 224   1              KEY=0x0f;
+ 225   1              if(KEY!=0x0f){
+ 226   2                      delay(1000);
+ 227   2                      if(KEY!=0xff){
+ 228   3                              switch(KEY){
+ 229   4                                      case(0x07):keyvalue=1;break;
+ 230   4                                      case(0x0b):keyvalue=2;break;
+ 231   4                                      case(0x0d):keyvalue=3;break;
+ 232   4                                      case(0x0e):keyvalue=4;break;
+ 233   4                              }
+ 234   3                              KEY=0xf0;
+ 235   3                              switch(KEY){
+ 236   4                                      case(0x70):keyvalue=keyvalue;break;
+ 237   4                                      case(0xb0):keyvalue=keyvalue+4;break;
+ 238   4                                      case(0xd0):keyvalue=keyvalue+8;break;
+ 239   4                                      case(0xe0):keyvalue=keyvalue+12;break;
+ 240   4                              }       
+ 241   3                      }
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 5   
+
+ 242   2              }
+ 243   1              return keyvalue;        
+ 244   1      } 
+ 245          //char转字符
+ 246          char changechar(uchar i){
+ 247   1              switch(i){
+ 248   2                      case 0: return '0';
+ 249   2                      case 1: return '1';
+ 250   2                      case 2: return '2';
+ 251   2                      case 3: return '3';
+ 252   2                      case 4: return '4';
+ 253   2                      case 5: return '5';
+ 254   2                      case 6: return '6';
+ 255   2                      case 7: return '7';
+ 256   2                      case 8: return '8';
+ 257   2                      case 9: return '9';
+ 258   2                      default:return '*';
+ 259   2              }
+ 260   1      
+ 261   1      }
+ 262          //密码显示函数
+ 263          void showpwd(uchar num,uchar position){
+ 264   1              OLED_ShowCHinese(0,3,22);//密
+ 265   1              OLED_ShowCHinese(18,3,23);//码
+ 266   1              OLED_ShowString(36,3,":",16);
+ 267   1              OLED_ShowChar((44+position*8),3,changechar(num),16);
+ 268   1              delay(20000);
+ 269   1              OLED_ShowChar((44+position*8),3,'*',16);
+ 270   1      }
+ 271          //密码输入处理函数
+ 272          uchar pwdprocess(){
+ 273   1              uchar keyvalue;
+ 274   1              uint j,i=0;
+ 275   1              //按键输入的位数
+ 276   1              uchar position=1;
+ 277   1              //自动进入死循环，超时或者密码输入完毕后时可以退出
+ 278   1              while(1){
+ 279   2                      //超时统计
+ 280   2                      i++;
+ 281   2                      if(keyvalue=keyprocess()){
+ 282   3                              //如果你输入大于9默认不显示
+ 283   3                              if(!(--keyvalue<=9)){continue;i=0;}
+ 284   3                              pwd[0][position]=keyvalue;
+ 285   3                              while(KEY!=0xf0);
+ 286   3                              showpwd(pwd[0][position],position);
+ 287   3                              position++;
+ 288   3                              i=0;
+ 289   3                              //密码输入完毕
+ 290   3                              if(position==6){
+ 291   4                                      //比对密码
+ 292   4                                      for(j=0;j<6;j++){
+ 293   5                                              if(pwd[0][j]!=pwd[1][j]){showerror();delay1s(1);return 0;}      
+ 294   5                                      }
+ 295   4                                      //密码输入成功                          
+ 296   4                                      showok(5); //显示成功
+ 297   4                                      return 1;       
+ 298   4                              }
+ 299   3                      }
+ 300   2                      //超时处理函数
+ 301   2                      if(i>=60000) return 0;          
+ 302   2              }
+ 303   1      }
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 6   
+
+ 304          
+ 305          void main(void){
+ 306   1      uint i=0;
+ 307   1      uchar keyvalue; 
+ 308   1      UART_init();//初始化串口
+ 309   1              power=0;
+ 310   1              OLED_Init();                    //初始化OLED  
+ 311   1              OLED_Clear();                           
+ 312   1              OLED_ShowCHinese(3,0,0);//小
+ 313   1              OLED_ShowCHinese(21,0,1);//游
+ 314   1              OLED_ShowCHinese(39,0,2);//指
+ 315   1              OLED_ShowCHinese(57,0,3);//纹
+ 316   1              OLED_ShowCHinese(75,0,5);//锁
+ 317   1              OLED_ShowString(93,0,"v1.0",16);
+ 318   1              showwait();
+ 319   1              beep=1;
+ 320   1                      
+ 321   1              while(1) 
+ 322   1              {       
+ 323   2                      i++;
+ 324   2                      //按键判断
+ 325   2                      if(keyvalue=keyprocess()){
+ 326   3                              keyvalue--;
+ 327   3                              //如果输入的数小于9那么就自动进入密码处理函数
+ 328   3                              if(keyvalue<=9){
+ 329   4                                      pwd[0][0]=keyvalue;
+ 330   4                                      //显示密码
+ 331   4                                      OLED_ShowString(0,3,"                ",16);
+ 332   4                                      showpwd(keyvalue,0);
+ 333   4                                      if(!pwdprocess()){
+ 334   5                                              //到这里说明输入错误或者超时
+ 335   5                                              showwait();
+ 336   5                                      }else{
+ 337   5                                              //到这里说说明输入成功！        
+ 338   5                                              showwait();
+ 339   5                                      }
+ 340   4                              }        
+ 341   3                      }
+ 342   2                      if(btn==0) showok(5);
+ 343   2                      if(i==10000){
+ 344   3                      flag=0;
+ 345   3                      //指纹判断
+ 346   3                              FPMXX_Cmd_Get_Img(); //获得指纹图像
+ 347   3                              FPMXX_Receive_Data(12);//接收12个长度的反馈码
+ 348   3                              if(FPMXX_RECEICE_BUFFER[9]==0x00){//接受到指纹
+ 349   4                                FINGERPRINT_Cmd_Img_To_Buffer1();
+ 350   4                                FPMXX_Receive_Data(12);
+ 351   4                                if(FPMXX_RECEICE_BUFFER[9]==0x0){
+ 352   5                                       FINGERPRINT_Cmd_Search_Finger_Admin();//搜索指纹
+ 353   5                                       FPMXX_Receive_Data(16);
+ 354   5                                       if(FPMXX_RECEICE_BUFFER[9]==0x0){//搜索到了指纹
+ 355   6                                               //这里是搜索到了指纹，开始匹配
+ 356   6                                               switch(FPMXX_RECEICE_BUFFER[11]){
+ 357   7                                                      case 0x01:showok(1);break;
+ 358   7                                                      case 0x02:showok(2);break;
+ 359   7                                                      case 0x03:showok(3);break;
+ 360   7                                                      case 0x04:showok(4);break;
+ 361   7                                                      default:showok(5);break;
+ 362   7                                               }
+ 363   6                                               showwait();
+ 364   6                                       }else{
+ 365   6                                              showerror();
+C51 COMPILER V9.01   MAIN                                                                  03/28/2019 22:06:20 PAGE 7   
+
+ 366   6                                              delay1s(1);
+ 367   6                                              showwait();
+ 368   6                                       }
+ 369   5                                }
+ 370   4                        }
+ 371   3                        i=0;
+ 372   3                       flag=1;
+ 373   3              }
+ 374   2       }              
+ 375   1      }
+ 376          
+ 377          
+ 378          void Timer0Interrupt(void) interrupt 1
+ 379          {  
+ 380   1              TH0 = 0xff;
+ 381   1              TL0 = 0x9c;     
+ 382   1              i0++;
+ 383   1              if(i0>=time){
+ 384   2                      beep=!beep;
+ 385   2                      i0=0;
+ 386   2              }
+ 387   1      }
+ 388            void ser() interrupt 4
+ 389           {   
+ 390   1      
+ 391   1               if(flag) RI = 0;
+ 392   1      }       
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1342    ----
+   CONSTANT SIZE    =     80    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     42      20
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
